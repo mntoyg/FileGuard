@@ -1,0 +1,10 @@
+^C:\USERS\THANAPAT MANASOM\DESKTOP\FILEGUARD\FILEGUARD\BUILD\CMAKEFILES\498E4F49613E195A8F980FBEE40D5260\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" "-SC:/Users/Thanapat Manasom/Desktop/FileGuard/FileGuard" "-BC:/Users/Thanapat Manasom/Desktop/FileGuard/FileGuard/build" --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file "C:/Users/Thanapat Manasom/Desktop/FileGuard/FileGuard/build/FileGuard.slnx"
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

@@ -1,0 +1,4 @@
+C:/Users/Thanapat Manasom/Desktop/FileGuard/FileGuard/build/CMakeFiles/fileguard.dir
+C:/Users/Thanapat Manasom/Desktop/FileGuard/FileGuard/build/CMakeFiles/INSTALL.dir
+C:/Users/Thanapat Manasom/Desktop/FileGuard/FileGuard/build/CMakeFiles/ALL_BUILD.dir
+C:/Users/Thanapat Manasom/Desktop/FileGuard/FileGuard/build/CMakeFiles/ZERO_CHECK.dir
