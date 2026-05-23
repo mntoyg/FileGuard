@@ -1,14 +1,14 @@
 #include "Encryptor.hpp"
- 
+
 #include <algorithm>
 #include <cstring>
 #include <fstream>
 #include <numeric>
 #include <stdexcept>
 #include <string>
- 
+
 namespace {
- 
+
 constexpr std::array<uint8_t, 256> SBOX = {
     0x63,0x7c,0x77,0x7b,0xf2,0x6b,0x6f,0xc5,0x30,0x01,0x67,0x2b,0xfe,0xd7,0xab,0x76,
     0xca,0x82,0xc9,0x7d,0xfa,0x59,0x47,0xf0,0xad,0xd4,0xa2,0xaf,0x9c,0xa4,0x72,0xc0,
@@ -27,62 +27,66 @@ constexpr std::array<uint8_t, 256> SBOX = {
     0xe1,0xf8,0x98,0x11,0x69,0xd9,0x8e,0x94,0x9b,0x1e,0x87,0xe9,0xce,0x55,0x28,0xdf,
     0x8c,0xa1,0x89,0x0d,0xbf,0xe6,0x42,0x68,0x41,0x99,0x2d,0x0f,0xb0,0x54,0xbb,0x16
 };
- 
-constexpr std::array<uint8_t, 256> INV_SBOX = []() {
-    std::array<uint8_t, 256> inv{};
-    for (int i = 0; i < 256; ++i)
-        inv[SBOX[i]] = static_cast<uint8_t>(i);
-    return inv;
-}();
- 
+
 constexpr std::array<uint8_t, 16> PERM = {
     0, 5, 10, 15, 4, 9, 14, 3, 8, 13, 2, 7, 12, 1, 6, 11
 };
- 
-constexpr std::array<uint8_t, 16> INV_PERM = []() {
-    std::array<uint8_t, 16> inv{};
-    for (uint8_t i = 0; i < 16; ++i)
-        inv[PERM[i]] = i;
+
+// Hardcoded to avoid MSVC constexpr lambda issues
+// INV_PERM[PERM[i]] = i
+constexpr std::array<uint8_t, 16> INV_PERM = {
+    0, 13, 10, 7, 4, 1, 14, 11, 8, 5, 2, 15, 12, 9, 6, 3
+};
+
+// Computed at runtime to avoid MSVC constexpr lambda issues
+const std::array<uint8_t, 256>& getInvSbox() {
+    static std::array<uint8_t, 256> inv{};
+    static bool ready = false;
+    if (!ready) {
+        for (int i = 0; i < 256; ++i)
+            inv[SBOX[i]] = static_cast<uint8_t>(i);
+        ready = true;
+    }
     return inv;
-}();
- 
+}
+
 void secureWipe(void* ptr, std::size_t len) noexcept {
     volatile uint8_t* p = static_cast<volatile uint8_t*>(ptr);
     for (std::size_t i = 0; i < len; ++i)
         p[i] = 0;
 }
- 
+
 std::array<uint8_t, fg::KEY_SCHEDULE_BYTES>
 deriveKeySchedule(std::string_view passphrase) {
     std::array<uint8_t, fg::KEY_SCHEDULE_BYTES> sched{};
     sched.fill(0x5A);
- 
+
     for (std::size_t i = 0; i < passphrase.size(); ++i)
         sched[i % fg::KEY_SCHEDULE_BYTES] ^= static_cast<uint8_t>(passphrase[i]);
- 
+
     for (int round = 0; round < 32; ++round)
         for (std::size_t j = 0; j < fg::KEY_SCHEDULE_BYTES; ++j)
             sched[j] = SBOX[sched[j] ^ sched[(j + 1) % fg::KEY_SCHEDULE_BYTES]];
- 
+
     return sched;
 }
- 
+
 } // anonymous namespace
- 
+
 namespace fg {
- 
+
 SecureKey::SecureKey(std::string_view passphrase) {
     bytes = deriveKeySchedule(passphrase);
 }
- 
+
 void SecureKey::wipe() noexcept {
     secureWipe(bytes.data(), bytes.size());
 }
- 
+
 SecureKey::SecureKey(SecureKey&& other) noexcept : bytes(other.bytes) {
     other.wipe();
 }
- 
+
 SecureKey& SecureKey::operator=(SecureKey&& other) noexcept {
     if (this != &other) {
         bytes = other.bytes;
@@ -90,56 +94,56 @@ SecureKey& SecureKey::operator=(SecureKey&& other) noexcept {
     }
     return *this;
 }
- 
+
 Encryptor::Encryptor(std::string_view passphrase, Mode mode)
     : key_(passphrase), mode_(mode) {}
- 
+
 std::vector<uint8_t> Encryptor::readFile(const std::filesystem::path& path) {
     if (!std::filesystem::exists(path))
         throw std::runtime_error("File not found: " + path.string());
- 
+
     if (!std::filesystem::is_regular_file(path))
         throw std::runtime_error("Not a regular file: " + path.string());
- 
+
     std::ifstream ifs(path, std::ios::binary);
     if (!ifs.is_open())
         throw std::runtime_error("Cannot open file: " + path.string());
- 
+
     const auto size = std::filesystem::file_size(path);
     std::vector<uint8_t> buf(size);
     if (!ifs.read(reinterpret_cast<char*>(buf.data()),
                   static_cast<std::streamsize>(size)))
         throw std::runtime_error("Read error: " + path.string());
- 
+
     return buf;
 }
- 
+
 void Encryptor::writeFile(const std::filesystem::path& path,
                           const std::vector<uint8_t>&  data) {
     if (path.has_parent_path())
         std::filesystem::create_directories(path.parent_path());
- 
+
     std::ofstream ofs(path, std::ios::binary | std::ios::trunc);
     if (!ofs.is_open())
         throw std::runtime_error("Cannot write file: " + path.string());
- 
+
     ofs.write(reinterpret_cast<const char*>(data.data()),
               static_cast<std::streamsize>(data.size()));
- 
+
     if (!ofs.good())
         throw std::runtime_error("Write error: " + path.string());
 }
- 
+
 void Encryptor::encryptFile(const std::filesystem::path& inputPath,
                             const std::filesystem::path& outputPath) const {
     writeFile(outputPath, encryptBuffer(readFile(inputPath)));
 }
- 
+
 void Encryptor::decryptFile(const std::filesystem::path& inputPath,
                             const std::filesystem::path& outputPath) const {
     writeFile(outputPath, decryptBuffer(readFile(inputPath)));
 }
- 
+
 std::vector<uint8_t>
 Encryptor::encryptBuffer(const std::vector<uint8_t>& plaintext) const {
     const uint32_t origSize = static_cast<uint32_t>(plaintext.size());
@@ -150,49 +154,49 @@ Encryptor::encryptBuffer(const std::vector<uint8_t>& plaintext) const {
     output.push_back(static_cast<uint8_t>((origSize >> 8) & 0xFF));
     output.push_back(static_cast<uint8_t>((origSize >> 16) & 0xFF));
     output.push_back(static_cast<uint8_t>((origSize >> 24) & 0xFF));
- 
+
     std::vector<uint8_t> cipher;
     switch (mode_) {
         case Mode::XOR: cipher = xorTransform(plaintext); break;
         case Mode::SPN: cipher = spnEncrypt(plaintext);   break;
     }
- 
+
     output.insert(output.end(), cipher.begin(), cipher.end());
     return output;
 }
- 
+
 std::vector<uint8_t>
 Encryptor::decryptBuffer(const std::vector<uint8_t>& ciphertext) const {
     constexpr std::size_t HEADER_SIZE = 5;
     if (ciphertext.size() < HEADER_SIZE)
         throw std::runtime_error("Ciphertext too short.");
- 
+
     const auto storedMode = static_cast<Mode>(ciphertext[0]);
     if (storedMode != mode_)
         throw std::runtime_error("Mode mismatch.");
- 
+
     const uint32_t origSize =
         static_cast<uint32_t>(ciphertext[1])         |
         (static_cast<uint32_t>(ciphertext[2]) << 8)  |
         (static_cast<uint32_t>(ciphertext[3]) << 16) |
         (static_cast<uint32_t>(ciphertext[4]) << 24);
- 
+
     const std::vector<uint8_t> payload(ciphertext.begin() + HEADER_SIZE,
                                        ciphertext.end());
- 
+
     std::vector<uint8_t> plain;
     switch (mode_) {
         case Mode::XOR: plain = xorTransform(payload); break;
         case Mode::SPN: plain = spnDecrypt(payload);   break;
     }
- 
+
     if (plain.size() < origSize)
         throw std::runtime_error("Decrypted size smaller than expected.");
- 
+
     plain.resize(origSize);
     return plain;
 }
- 
+
 std::vector<uint8_t>
 Encryptor::xorTransform(const std::vector<uint8_t>& data) const {
     std::vector<uint8_t> output(data.size());
@@ -225,13 +229,15 @@ void Encryptor::spnRoundEncrypt(std::array<uint8_t, 16>& block, int roundIndex) 
 }
 
 void Encryptor::spnRoundDecrypt(std::array<uint8_t, 16>& block, int roundIndex) const {
+    const auto& INV_SBOX = getInvSbox();
+
     const auto subkey = makeSubKey(key_.bytes, roundIndex);
     for (int i = 0; i < 16; ++i)
         block[i] ^= subkey[i];
 
     std::array<uint8_t, 16> unpermuted{};
     for (int i = 0; i < 16; ++i)
-         unpermuted[PERM[i]] = block[INV_PERM[i]];
+        unpermuted[i] = block[INV_PERM[i]];
     block = unpermuted;
 
     for (auto& b : block)
@@ -253,7 +259,7 @@ Encryptor::spnEncrypt(const std::vector<uint8_t>& plaintext) const {
 
         const auto initKey = makeSubKey(key_.bytes, 0);
         for (int i = 0; i < 16; ++i)
-             block[i] ^= initKey[i];
+            block[i] ^= initKey[i];
 
         for (int r = 1; r <= SPN_ROUNDS; ++r)
             spnRoundEncrypt(block, r);
@@ -266,7 +272,7 @@ Encryptor::spnEncrypt(const std::vector<uint8_t>& plaintext) const {
 std::vector<uint8_t>
 Encryptor::spnDecrypt(const std::vector<uint8_t>& ciphertext) const {
     if (ciphertext.size() % 16 != 0)
-        throw std::runtime_error("SPN ciphertext length not multiple of 16");
+        throw std::runtime_error("SPN ciphertext length not multiple of 16.");
 
     std::vector<uint8_t> output;
     output.reserve(ciphertext.size());
@@ -287,4 +293,4 @@ Encryptor::spnDecrypt(const std::vector<uint8_t>& ciphertext) const {
     return output;
 }
 
-}
+} // namespace fg
